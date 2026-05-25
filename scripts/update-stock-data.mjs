@@ -2,6 +2,15 @@ import fs from "fs";
 import AdmZip from "adm-zip";
 
 const DART_KEY = process.env.OPENDART_API_KEY;
+const KIWOOM_APP_KEY = process.env.KIWOOM_APP_KEY;
+const KIWOOM_APP_SECRET = process.env.KIWOOM_APP_SECRET;
+const KIWOOM_BASE_URL = process.env.KIWOOM_BASE_URL || "https://api.kiwoom.com";
+const KIWOOM_TOKEN_PATH = process.env.KIWOOM_TOKEN_PATH || "/oauth2/token";
+const KIWOOM_STOCK_LIST_PATH = process.env.KIWOOM_STOCK_LIST_PATH || "/api/dostk/stkinfo";
+const KIWOOM_MARKETS = (process.env.KIWOOM_MARKETS || "KOSPI,KOSDAQ").split(",").map((v) => v.trim()).filter(Boolean);
+const KIWOOM_PAGE_SIZE = Number(process.env.KIWOOM_PAGE_SIZE || 500);
+const KIWOOM_MAX_PAGES = Number(process.env.KIWOOM_MAX_PAGES || 20);
+const KIWOOM_QUOTE_PATH = process.env.KIWOOM_QUOTE_PATH || "/api/dostk/stkinfo/price";
 const STOCK_LIST_PATH = "data/stock-list.json";
 const OUTPUT_PATH = "data/stocks.json";
 const REPORTS = [
@@ -76,6 +85,86 @@ async function fetchNaver(code) {
   const pbr = byId(html, "_pbr") !== "-" ? byId(html, "_pbr") : byLabel(html, "PBR");
   const dividendYield = byLabel(html, "배당수익률");
   const marketCap = byLabel(html, "시가총액");
+  return {
+    currentPrice,
+    changeRate,
+    metrics: {
+      per,
+      pbr,
+      marketCap: marketCap === "-" ? "-" : `${marketCap.toLocaleString("ko-KR")}억`,
+      dividendYield
+    }
+  };
+}
+async function kiwoomToken() {
+  if (!KIWOOM_APP_KEY || !KIWOOM_APP_SECRET) return null;
+  const response = await fetch(`${KIWOOM_BASE_URL}${KIWOOM_TOKEN_PATH}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "client_credentials",
+      appkey: KIWOOM_APP_KEY,
+      appsecret: KIWOOM_APP_SECRET
+    })
+  });
+  if (!response.ok) throw new Error(`Kiwoom token HTTP ${response.status}`);
+  const data = await response.json();
+  return data.access_token || data.token || null;
+}
+async function kiwoomGet(path, token, params = {}) {
+  if (!token) throw new Error("Kiwoom token 없음");
+  const url = new URL(`${KIWOOM_BASE_URL}${path}`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      appkey: KIWOOM_APP_KEY || "",
+      appsecret: KIWOOM_APP_SECRET || ""
+    }
+  });
+  if (!response.ok) throw new Error(`Kiwoom HTTP ${response.status}: ${path}`);
+  return await response.json();
+}
+function normalizeUniverseItem(item) {
+  const code = String(item.code || item.stk_cd || item.iscd || item.stock_code || item.item_cd || "").trim();
+  const name = String(item.name || item.stk_nm || item.hts_kor_isnm || item.stock_name || item.item_nm || "").trim();
+  const market = String(item.market || item.mrkt || item.market_type || item.mrkt_tp || "").trim();
+  if (!code || !name) return null;
+  return { code, name, market };
+}
+async function fetchKiwoomUniverse(token) {
+  if (!token) return [];
+
+  const merged = new Map();
+  for (const market of KIWOOM_MARKETS) {
+    for (let page = 1; page <= KIWOOM_MAX_PAGES; page += 1) {
+      const data = await kiwoomGet(KIWOOM_STOCK_LIST_PATH, token, {
+        market,
+        page: String(page),
+        size: String(KIWOOM_PAGE_SIZE)
+      });
+      const list = data.stocks || data.output || data.items || data.list || [];
+      if (!Array.isArray(list) || list.length === 0) break;
+      for (const item of list.map(normalizeUniverseItem).filter(Boolean)) {
+        if (!merged.has(item.code)) merged.set(item.code, item);
+      }
+      if (list.length < KIWOOM_PAGE_SIZE) break;
+      await sleep(120);
+    }
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+}
+async function fetchKiwoomQuote(code, token) {
+  if (!token) return null;
+  const data = await kiwoomGet(KIWOOM_QUOTE_PATH, token, { code });
+  const quote = data.output || data.data || data.quote || data;
+  const currentPrice = toNumber(quote.currentPrice || quote.stck_prpr || quote.price || quote.now || "-");
+  const changeRate = toNumber(quote.changeRate || quote.prdy_ctrt || quote.rate || "-");
+  const per = toNumber(quote.per || quote.PER || "-");
+  const pbr = toNumber(quote.pbr || quote.PBR || "-");
+  const marketCap = toNumber(quote.marketCap || quote.lstg_stqt || quote.market_cap || "-");
+  const dividendYield = toNumber(quote.dividendYield || quote.dvdd_yld || "-");
   return {
     currentPrice,
     changeRate,
@@ -194,11 +283,15 @@ async function financialSections(corpCode) {
     latest: [...quarterValues].reverse().find(Boolean) || [...annualValues].reverse().find(Boolean) || null
   };
 }
-async function buildStock(config, configsByCode) {
+async function buildStock(config, configsByCode, kiwoomTokenValue) {
   console.log(`Updating ${config.code} ${config.name}`);
   const naver = await fetchNaver(config.code).catch(e => {
     console.warn(`Naver skip ${config.code}: ${e.message}`);
     return { currentPrice: "-", changeRate: "-", metrics: {} };
+  });
+  const kiwoom = await fetchKiwoomQuote(config.code, kiwoomTokenValue).catch(e => {
+    console.warn(`Kiwoom skip ${config.code}: ${e.message}`);
+    return null;
   });
   const corpCode = config.corpCode || await corpCodeFromDart(config.code).catch(() => null);
   let annual = { columns: [], rows: [] }, quarter = { columns: [], rows: [] }, latest = null;
@@ -212,7 +305,9 @@ async function buildStock(config, configsByCode) {
   for (const peerCode of config.peers || []) {
     const peerConfig = configsByCode.get(peerCode);
     if (!peerConfig) continue;
-    const peer = await fetchNaver(peerCode).catch(() => ({ metrics: {} }));
+    const peerNaver = await fetchNaver(peerCode).catch(() => ({ metrics: {} }));
+    const peerKiwoom = await fetchKiwoomQuote(peerCode, kiwoomTokenValue).catch(() => null);
+    const peer = peerKiwoom || peerNaver;
     peers.push({
       code: peerCode,
       name: peerConfig.name || peerCode,
@@ -228,18 +323,18 @@ async function buildStock(config, configsByCode) {
     name: config.name,
     corpCode: corpCode || "",
     description: config.description || "",
-    currentPrice: naver.currentPrice || "-",
-    changeRate: naver.changeRate || "-",
+    currentPrice: (kiwoom?.currentPrice ?? naver.currentPrice) || "-",
+    changeRate: (kiwoom?.changeRate ?? naver.changeRate) || "-",
     targetPrice: "-",
-    source: "Naver + OpenDART",
+    source: "Kiwoom + Naver + OpenDART",
     metrics: {
-      per: naver.metrics.per || "-",
-      pbr: naver.metrics.pbr || "-",
+      per: (kiwoom?.metrics?.per ?? naver.metrics.per) || "-",
+      pbr: (kiwoom?.metrics?.pbr ?? naver.metrics.pbr) || "-",
       roe: latest?.roe ?? "-",
       eps: latest?.eps ?? "-",
       bps: "-",
-      marketCap: naver.metrics.marketCap || "-",
-      dividendYield: naver.metrics.dividendYield || "-",
+      marketCap: (kiwoom?.metrics?.marketCap ?? naver.metrics.marketCap) || "-",
+      dividendYield: (kiwoom?.metrics?.dividendYield ?? naver.metrics.dividendYield) || "-",
       dividend: "-"
     },
     peers,
@@ -251,13 +346,23 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(STOCK_LIST_PATH, "utf8"));
   const list = config.stocks || [];
   const configsByCode = new Map(list.map(item => [item.code, item]));
+  const kiwoomTokenValue = await kiwoomToken().catch((e) => {
+    console.warn(`Kiwoom auth skip: ${e.message}`);
+    return null;
+  });
+  const allStocks = await fetchKiwoomUniverse(kiwoomTokenValue).catch((e) => {
+    console.warn(`Kiwoom universe skip: ${e.message}`);
+    return [];
+  });
   const stocks = [];
   for (const item of list) {
-    stocks.push(await buildStock(item, configsByCode));
+    stocks.push(await buildStock(item, configsByCode, kiwoomTokenValue));
     await sleep(500);
   }
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify({
     updatedAt: new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }),
+    universeSource: allStocks.length ? "Kiwoom" : "Config",
+    allStocks: allStocks.length ? allStocks : list.map((item) => ({ code: item.code, name: item.name, market: "" })),
     stocks
   }, null, 2), "utf8");
   console.log(`Saved ${OUTPUT_PATH}`);
