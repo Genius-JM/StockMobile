@@ -7,6 +7,9 @@ const KIWOOM_APP_SECRET = process.env.KIWOOM_APP_SECRET;
 const KIWOOM_BASE_URL = process.env.KIWOOM_BASE_URL || "https://api.kiwoom.com";
 const KIWOOM_TOKEN_PATH = process.env.KIWOOM_TOKEN_PATH || "/oauth2/token";
 const KIWOOM_STOCK_LIST_PATH = process.env.KIWOOM_STOCK_LIST_PATH || "/api/dostk/stkinfo";
+const KIWOOM_MARKETS = (process.env.KIWOOM_MARKETS || "KOSPI,KOSDAQ").split(",").map((v) => v.trim()).filter(Boolean);
+const KIWOOM_PAGE_SIZE = Number(process.env.KIWOOM_PAGE_SIZE || 500);
+const KIWOOM_MAX_PAGES = Number(process.env.KIWOOM_MAX_PAGES || 20);
 const KIWOOM_QUOTE_PATH = process.env.KIWOOM_QUOTE_PATH || "/api/dostk/stkinfo/price";
 const STOCK_LIST_PATH = "data/stock-list.json";
 const OUTPUT_PATH = "data/stocks.json";
@@ -123,17 +126,34 @@ async function kiwoomGet(path, token, params = {}) {
   return await response.json();
 }
 function normalizeUniverseItem(item) {
-  const code = String(item.code || item.stk_cd || item.iscd || item.stock_code || "").trim();
-  const name = String(item.name || item.stk_nm || item.hts_kor_isnm || item.stock_name || "").trim();
-  const market = String(item.market || item.mrkt || item.market_type || "").trim();
+  const code = String(item.code || item.stk_cd || item.iscd || item.stock_code || item.item_cd || "").trim();
+  const name = String(item.name || item.stk_nm || item.hts_kor_isnm || item.stock_name || item.item_nm || "").trim();
+  const market = String(item.market || item.mrkt || item.market_type || item.mrkt_tp || "").trim();
   if (!code || !name) return null;
   return { code, name, market };
 }
 async function fetchKiwoomUniverse(token) {
   if (!token) return [];
-  const data = await kiwoomGet(KIWOOM_STOCK_LIST_PATH, token);
-  const list = data.stocks || data.output || data.items || data.list || [];
-  return list.map(normalizeUniverseItem).filter(Boolean);
+
+  const merged = new Map();
+  for (const market of KIWOOM_MARKETS) {
+    for (let page = 1; page <= KIWOOM_MAX_PAGES; page += 1) {
+      const data = await kiwoomGet(KIWOOM_STOCK_LIST_PATH, token, {
+        market,
+        page: String(page),
+        size: String(KIWOOM_PAGE_SIZE)
+      });
+      const list = data.stocks || data.output || data.items || data.list || [];
+      if (!Array.isArray(list) || list.length === 0) break;
+      for (const item of list.map(normalizeUniverseItem).filter(Boolean)) {
+        if (!merged.has(item.code)) merged.set(item.code, item);
+      }
+      if (list.length < KIWOOM_PAGE_SIZE) break;
+      await sleep(120);
+    }
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
 async function fetchKiwoomQuote(code, token) {
   if (!token) return null;
