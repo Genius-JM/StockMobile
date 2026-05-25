@@ -1,0 +1,296 @@
+:root {
+  --bg: #f5f7f9;
+  --card: #ffffff;
+  --text: #121826;
+  --muted: #6b7280;
+  --line: #d9e0e7;
+  --blue: #2563eb;
+  --green: #16a34a;
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 16px 14px;
+  background: rgba(245, 247, 249, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+h1, h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 24px;
+}
+
+main {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: 14px;
+}
+
+.search-card,
+.summary-card,
+.panel {
+  margin-bottom: 14px;
+  padding: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+input,
+select {
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.ghost-btn {
+  padding: 9px 12px;
+  color: var(--blue);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.price-box {
+  min-width: 96px;
+  padding: 10px;
+  text-align: right;
+  background: #f8fafc;
+  border-radius: 14px;
+}
+
+.price-box span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.price-box strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 18px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.metric {
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+}
+
+.metric span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.accordion {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font-weight: 800;
+  text-align: left;
+}
+
+.panel-body {
+  display: none;
+  padding-top: 12px;
+}
+
+.panel.open .panel-body {
+  display: block;
+}
+
+.panel.open .accordion span {
+  color: var(--blue);
+}
+
+.bars {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.bar-item {
+  display: grid;
+  gap: 6px;
+}
+
+.bar-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.bar-track {
+  height: 9px;
+  overflow: hidden;
+  background: #e5e7eb;
+  border-radius: 999px;
+}
+
+.bar-fill {
+  height: 100%;
+  width: var(--w);
+  background: linear-gradient(90deg, var(--blue), var(--green));
+  border-radius: inherit;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+th,
+td {
+  padding: 10px 9px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  text-align: left;
+  background: #fff;
+  font-weight: 800;
+}
+
+th {
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 800;
+}
+
+th:first-child {
+  background: #f8fafc;
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}
+
+footer {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: 10px 16px 28px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+code {
+  padding: 2px 5px;
+  background: #e5e7eb;
+  border-radius: 6px;
+}
+
+@media (min-width: 720px) {
+  .search-row {
+    grid-template-columns: 1fr 220px;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
