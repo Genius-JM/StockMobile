@@ -1,39 +1,74 @@
 # 모바일 주식 재무정보 웹앱
 
-GitHub Pages에서 바로 실행할 수 있는 정적 웹앱입니다.
+GitHub Pages에서 실행되는 정적 웹앱입니다.
 
-## 파일 구조
+데이터 갱신은 GitHub Actions가 담당합니다.
+
+- 네이버 금융: 현재가, 등락률, PER, PBR, 시가총액 등
+- OpenDART: 재무제표 기반 매출액, 영업이익, 당기순이익, ROE, EPS 등
+
+## 설정 방법
+
+### 1. OpenDART API Key 발급
+
+OpenDART에서 인증키를 발급받습니다.
+
+### 2. GitHub Secret 등록
+
+Repository에서 아래 경로로 이동합니다.
 
 ```text
-index.html
-style.css
-app.js
-data/stocks.json
+Settings > Secrets and variables > Actions > New repository secret
 ```
 
-## 실행 방법
+이름은 아래처럼 입력합니다.
 
-1. GitHub에서 새 Repository를 만듭니다.
-2. 이 폴더 안의 파일들을 Repository 루트에 업로드합니다.
-3. GitHub Repository에서 Settings > Pages로 이동합니다.
-4. Branch를 `main`, Folder를 `/root`로 선택합니다.
-5. 생성된 GitHub Pages 주소를 핸드폰에서 엽니다.
-6. 핸드폰 브라우저에서 "홈 화면에 추가"를 누르면 앱처럼 사용할 수 있습니다.
+```text
+OPENDART_API_KEY
+```
 
-## 데이터 수정 방법
+값에는 발급받은 OpenDART 인증키를 넣습니다.
 
-`data/stocks.json` 파일을 열어서 종목, PER, PBR, ROE, EPS, BPS, 실적 데이터를 바꾸면 됩니다.
+### 3. GitHub Actions 권한 설정
 
-## 실시간 API 연동
+Repository에서 아래 경로로 이동합니다.
 
-이 버전은 API 키 노출을 막기 위해 정적 JSON 조회 방식입니다.
-실시간 API를 붙이려면 다음 중 하나가 필요합니다.
+```text
+Settings > Actions > General > Workflow permissions
+```
 
-- API 키가 필요 없는 공개 API를 브라우저에서 직접 호출
-- CORS가 허용된 API 사용
-- API 키가 필요한 경우 작은 백엔드 서버 또는 GitHub Actions 배치 사용
+아래 옵션을 선택합니다.
 
-## 추천 운영 방식
+```text
+Read and write permissions
+```
 
-처음에는 `stocks.json`을 수동으로 수정해 사용하고,
-나중에 GitHub Actions로 하루 1회 자동 갱신하도록 확장하는 것을 추천합니다.
+### 4. 수동 실행
+
+Repository 상단의 `Actions` 메뉴로 이동합니다.
+
+`Update stock data` 워크플로우를 선택한 뒤 `Run workflow`를 누릅니다.
+
+성공하면 `data/stocks.json`이 자동으로 갱신됩니다.
+
+## 종목 추가
+
+`data/stock-list.json`에 종목을 추가합니다.
+
+```json
+{
+  "code": "005930",
+  "name": "삼성전자",
+  "corpCode": "00126380",
+  "description": "설명",
+  "peers": ["000660"]
+}
+```
+
+`corpCode`를 모르면 비워둘 수도 있지만, 매번 OpenDART 고유번호 ZIP을 조회하므로 느려질 수 있습니다.
+
+## 주의
+
+네이버 금융은 공식 Open API가 아니라 화면 HTML을 읽는 방식입니다. 네이버 화면 구조가 바뀌면 일부 값이 비어 있을 수 있습니다.
+
+OpenDART 재무제표 계정명은 회사별로 다를 수 있어서 일부 항목은 `-`로 표시될 수 있습니다.

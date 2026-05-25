@@ -9,7 +9,7 @@
 <body>
   <header class="app-header">
     <div>
-      <p class="eyebrow">Stock Financial Viewer</p>
+      <p class="eyebrow">Naver Finance + OpenDART</p>
       <h1>주식 재무정보</h1>
     </div>
     <button id="refreshBtn" class="ghost-btn" type="button">새로고침</button>
@@ -32,8 +32,9 @@
           <p id="stockDesc" class="muted"></p>
         </div>
         <div class="price-box">
-          <span>목표가</span>
-          <strong id="targetPrice">-</strong>
+          <span>현재가</span>
+          <strong id="currentPrice">-</strong>
+          <small id="changeRate">-</small>
         </div>
       </div>
 
@@ -79,7 +80,7 @@
   </main>
 
   <footer>
-    <p>GitHub Pages에서 실행되는 정적 웹앱입니다. 데이터는 <code>data/stocks.json</code>을 수정하면 바뀝니다.</p>
+    <p>GitHub Actions가 네이버 금융과 OpenDART에서 조회해 <code>data/stocks.json</code>을 갱신합니다.</p>
   </footer>
 
   <script src="./app.js"></script>

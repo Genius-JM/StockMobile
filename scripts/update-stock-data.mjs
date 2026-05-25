@@ -1,0 +1,265 @@
+import fs from "fs";
+import AdmZip from "adm-zip";
+
+const DART_KEY = process.env.OPENDART_API_KEY;
+const STOCK_LIST_PATH = "data/stock-list.json";
+const OUTPUT_PATH = "data/stocks.json";
+const REPORTS = [
+  { code: "11013", month: "03" },
+  { code: "11012", month: "06" },
+  { code: "11014", month: "09" },
+  { code: "11011", month: "12" }
+];
+const ALIASES = {
+  revenue: ["매출액", "수익(매출액)", "영업수익", "매출", "수익"],
+  operatingProfit: ["영업이익", "영업이익(손실)"],
+  netIncome: ["당기순이익", "당기순이익(손실)", "분기순이익", "반기순이익"],
+  liabilities: ["부채총계"],
+  equity: ["자본총계"],
+  eps: ["기본주당이익", "기본주당순이익", "주당이익"]
+};
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function toNumber(value) {
+  if (value === null || value === undefined) return "-";
+  const cleaned = String(value).replace(/,/g, "").replace(/원/g, "").replace(/%/g, "").trim();
+  if (!cleaned || cleaned === "-" || cleaned === "N/A") return "-";
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : "-";
+}
+function formatWon(won) {
+  const n = toNumber(won);
+  if (n === "-") return "-";
+  const eok = Math.round(n / 100000000);
+  if (eok >= 10000) {
+    const jo = Math.floor(eok / 10000);
+    const rest = eok % 10000;
+    return rest ? `${jo}조 ${rest.toLocaleString("ko-KR")}억` : `${jo}조`;
+  }
+  return `${eok.toLocaleString("ko-KR")}억`;
+}
+function plain(html) {
+  return html.replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ");
+}
+function byId(html, id) {
+  const re = new RegExp(`id=["']${id}["'][^>]*>([\\s\\S]*?)<`, "i");
+  const m = html.match(re);
+  return m ? toNumber(m[1].replace(/<[^>]+>/g, "")) : "-";
+}
+function byLabel(html, label) {
+  const text = plain(html);
+  const idx = text.indexOf(label);
+  if (idx < 0) return "-";
+  const m = text.slice(idx, idx + 300).match(/(-?\d[\d,]*\.?\d*)\s*(?:%|배|원)?/);
+  return m ? toNumber(m[1]) : "-";
+}
+async function fetchText(url) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 GitHubActions StockDataBot",
+      "Accept": "text/html,application/json,*/*",
+      "Referer": "https://finance.naver.com/"
+    }
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
+  return await response.text();
+}
+async function fetchNaver(code) {
+  const html = await fetchText(`https://finance.naver.com/item/main.naver?code=${code}`);
+  const currentPrice = byId(html, "_nowVal");
+  const changeRate = byId(html, "_rate");
+  const per = byId(html, "_per") !== "-" ? byId(html, "_per") : byLabel(html, "PER");
+  const pbr = byId(html, "_pbr") !== "-" ? byId(html, "_pbr") : byLabel(html, "PBR");
+  const dividendYield = byLabel(html, "배당수익률");
+  const marketCap = byLabel(html, "시가총액");
+  return {
+    currentPrice,
+    changeRate,
+    metrics: {
+      per,
+      pbr,
+      marketCap: marketCap === "-" ? "-" : `${marketCap.toLocaleString("ko-KR")}억`,
+      dividendYield
+    }
+  };
+}
+async function dartJson(path, params) {
+  if (!DART_KEY) throw new Error("OPENDART_API_KEY secret이 없습니다.");
+  const url = new URL(`https://opendart.fss.or.kr/api/${path}`);
+  url.searchParams.set("crtfc_key", DART_KEY);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`OpenDART HTTP ${response.status}`);
+  const data = await response.json();
+  if (data.status && !["000", "013"].includes(data.status)) throw new Error(`OpenDART ${data.status}: ${data.message}`);
+  return data;
+}
+async function corpCodeFromDart(stockCode) {
+  if (!DART_KEY) return null;
+  const response = await fetch(`https://opendart.fss.or.kr/api/corpCode.xml?crtfc_key=${DART_KEY}`);
+  if (!response.ok) throw new Error(`corpCode.xml HTTP ${response.status}`);
+  const zip = new AdmZip(Buffer.from(await response.arrayBuffer()));
+  const entry = zip.getEntries().find(e => e.entryName.toLowerCase().endsWith(".xml"));
+  if (!entry) return null;
+  const xml = entry.getData().toString("utf8");
+  const re = /<list>([\s\S]*?)<\/list>/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const item = m[1];
+    const stock = (item.match(/<stock_code>(.*?)<\/stock_code>/)?.[1] || "").trim();
+    if (stock === stockCode) return (item.match(/<corp_code>(.*?)<\/corp_code>/)?.[1] || "").trim();
+  }
+  return null;
+}
+function account(list, aliases, statements = []) {
+  const rows = list.filter(row => {
+    const accountName = (row.account_nm || "").replace(/\s/g, "");
+    const sjName = row.sj_nm || "";
+    const a = aliases.some(alias => accountName.includes(alias.replace(/\s/g, "")));
+    const s = statements.length === 0 || statements.some(name => sjName.includes(name));
+    return a && s;
+  });
+  if (!rows.length) return "-";
+  return toNumber((rows.find(row => row.fs_nm?.includes("연결")) || rows[0]).thstrm_amount);
+}
+async function dartFinancial(corpCode, year, reportCode) {
+  const data = await dartJson("fnlttSinglAcntAll.json", {
+    corp_code: corpCode,
+    bsns_year: String(year),
+    reprt_code: reportCode,
+    fs_div: "CFS"
+  });
+  const list = data.list || [];
+  if (!list.length) return null;
+  const revenue = account(list, ALIASES.revenue, ["손익계산서", "포괄손익계산서"]);
+  const operatingProfit = account(list, ALIASES.operatingProfit, ["손익계산서", "포괄손익계산서"]);
+  const netIncome = account(list, ALIASES.netIncome, ["손익계산서", "포괄손익계산서"]);
+  const liabilities = account(list, ALIASES.liabilities, ["재무상태표"]);
+  const equity = account(list, ALIASES.equity, ["재무상태표"]);
+  const eps = account(list, ALIASES.eps, ["손익계산서", "포괄손익계산서"]);
+  return {
+    revenue,
+    operatingProfit,
+    netIncome,
+    eps,
+    operatingMargin: revenue !== "-" && operatingProfit !== "-" ? Number((operatingProfit / revenue * 100).toFixed(2)) : "-",
+    netMargin: revenue !== "-" && netIncome !== "-" ? Number((netIncome / revenue * 100).toFixed(2)) : "-",
+    debtRatio: liabilities !== "-" && equity !== "-" ? Number((liabilities / equity * 100).toFixed(2)) : "-",
+    roe: netIncome !== "-" && equity !== "-" ? Number((netIncome / equity * 100).toFixed(2)) : "-"
+  };
+}
+function table(columns, values) {
+  const rows = [
+    ["매출액", "revenue", true],
+    ["영업이익", "operatingProfit", true],
+    ["당기순이익", "netIncome", true],
+    ["영업이익률", "operatingMargin", false],
+    ["순이익률", "netMargin", false],
+    ["ROE", "roe", false],
+    ["부채비율", "debtRatio", false],
+    ["EPS", "eps", false]
+  ].map(([label, key, amount]) => ({
+    label,
+    values: values.map(v => amount ? formatWon(v?.[key]) : (v?.[key] ?? "-"))
+  }));
+  return { columns, rows };
+}
+async function financialSections(corpCode) {
+  const y = new Date().getUTCFullYear();
+  const annualColumns = [], annualValues = [];
+  for (const year of [y - 3, y - 2, y - 1]) {
+    try {
+      const v = await dartFinancial(corpCode, year, "11011");
+      if (v) { annualColumns.push(`${year}.12`); annualValues.push(v); }
+      await sleep(250);
+    } catch (e) { console.warn(`Annual skip ${corpCode} ${year}: ${e.message}`); }
+  }
+  const quarterColumns = [], quarterValues = [];
+  for (const year of [y - 1, y]) {
+    for (const r of REPORTS) {
+      try {
+        const v = await dartFinancial(corpCode, year, r.code);
+        if (v) { quarterColumns.push(`${year}.${r.month}`); quarterValues.push(v); }
+        await sleep(250);
+      } catch (e) { console.warn(`Quarter skip ${corpCode} ${year} ${r.code}: ${e.message}`); }
+    }
+  }
+  return {
+    annual: table(annualColumns, annualValues),
+    quarter: table(quarterColumns.slice(-6), quarterValues.slice(-6)),
+    latest: [...quarterValues].reverse().find(Boolean) || [...annualValues].reverse().find(Boolean) || null
+  };
+}
+async function buildStock(config, configsByCode) {
+  console.log(`Updating ${config.code} ${config.name}`);
+  const naver = await fetchNaver(config.code).catch(e => {
+    console.warn(`Naver skip ${config.code}: ${e.message}`);
+    return { currentPrice: "-", changeRate: "-", metrics: {} };
+  });
+  const corpCode = config.corpCode || await corpCodeFromDart(config.code).catch(() => null);
+  let annual = { columns: [], rows: [] }, quarter = { columns: [], rows: [] }, latest = null;
+  if (corpCode) {
+    try {
+      const dart = await financialSections(corpCode);
+      annual = dart.annual; quarter = dart.quarter; latest = dart.latest;
+    } catch (e) { console.warn(`DART skip ${config.code}: ${e.message}`); }
+  }
+  const peers = [];
+  for (const peerCode of config.peers || []) {
+    const peerConfig = configsByCode.get(peerCode);
+    if (!peerConfig) continue;
+    const peer = await fetchNaver(peerCode).catch(() => ({ metrics: {} }));
+    peers.push({
+      code: peerCode,
+      name: peerConfig.name || peerCode,
+      marketCap: peer.metrics.marketCap || "-",
+      per: peer.metrics.per || "-",
+      pbr: peer.metrics.pbr || "-",
+      roe: "-"
+    });
+    await sleep(200);
+  }
+  return {
+    code: config.code,
+    name: config.name,
+    corpCode: corpCode || "",
+    description: config.description || "",
+    currentPrice: naver.currentPrice || "-",
+    changeRate: naver.changeRate || "-",
+    targetPrice: "-",
+    source: "Naver + OpenDART",
+    metrics: {
+      per: naver.metrics.per || "-",
+      pbr: naver.metrics.pbr || "-",
+      roe: latest?.roe ?? "-",
+      eps: latest?.eps ?? "-",
+      bps: "-",
+      marketCap: naver.metrics.marketCap || "-",
+      dividendYield: naver.metrics.dividendYield || "-",
+      dividend: "-"
+    },
+    peers,
+    annual,
+    quarter
+  };
+}
+async function main() {
+  const config = JSON.parse(fs.readFileSync(STOCK_LIST_PATH, "utf8"));
+  const list = config.stocks || [];
+  const configsByCode = new Map(list.map(item => [item.code, item]));
+  const stocks = [];
+  for (const item of list) {
+    stocks.push(await buildStock(item, configsByCode));
+    await sleep(500);
+  }
+  fs.writeFileSync(OUTPUT_PATH, JSON.stringify({
+    updatedAt: new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }),
+    stocks
+  }, null, 2), "utf8");
+  console.log(`Saved ${OUTPUT_PATH}`);
+}
+main().catch(error => { console.error(error); process.exit(1); });

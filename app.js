@@ -53,7 +53,8 @@ function selectStock(code) {
 function renderSummary(stock) {
   document.getElementById("stockName").textContent = `${stock.name} (${stock.code})`;
   document.getElementById("stockDesc").textContent = stock.description || "";
-  document.getElementById("targetPrice").textContent = formatValue(stock.targetPrice);
+  document.getElementById("currentPrice").textContent = formatValue(stock.currentPrice, "원");
+  document.getElementById("changeRate").textContent = stock.changeRate && stock.changeRate !== "-" ? `${stock.changeRate}%` : "-";
 
   const metrics = [
     ["PER", stock.metrics.per, "배"],
@@ -64,6 +65,7 @@ function renderSummary(stock) {
     ["시가총액", stock.metrics.marketCap, ""],
     ["배당수익률", stock.metrics.dividendYield, "%"],
     ["배당금", stock.metrics.dividend, "원"],
+    ["목표가", stock.targetPrice, "원"],
   ];
 
   document.getElementById("metricGrid").innerHTML = metrics
