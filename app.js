@@ -21,7 +21,7 @@ async function loadStocks() {
     `데이터 업데이트: ${data.updatedAt || "-"}`;
 
   fillStockSelect();
-  selectStock(state.stocks[0]?.code);
+  selectStock(state.stocks[0]?.code, { preserveSearch: true });
 }
 
 function fillStockSelect() {
@@ -36,13 +36,16 @@ function fillStockSelect() {
   });
 }
 
-function selectStock(code) {
+function selectStock(code, options = {}) {
+  const { preserveSearch = false } = options;
   const stock = state.stocks.find((item) => item.code === code);
   if (!stock) return;
 
   state.selected = stock;
   document.getElementById("stockSelect").value = stock.code;
-  document.getElementById("stockSearch").value = "";
+  if (!preserveSearch) {
+    document.getElementById("stockSearch").value = "";
+  }
 
   renderSummary(stock);
   renderPeers(stock);
@@ -106,7 +109,7 @@ function renderPeers(stock) {
 
   const rows = peers.map((peer) => `
     <tr>
-      <td>${peer.code} ${peer.name}</td>
+      <td>${peer.name}</td>
       <td>${formatValue(peer.marketCap)}</td>
       <td>${formatValue(peer.per, "배")}</td>
       <td>${formatValue(peer.pbr, "배")}</td>
@@ -162,7 +165,20 @@ document.getElementById("stockSelect").addEventListener("change", (event) => {
   selectStock(event.target.value);
 });
 
-document.getElementById("stockSearch").addEventListener("input", (event) => {
+let isComposing = false;
+const stockSearch = document.getElementById("stockSearch");
+
+stockSearch.addEventListener("compositionstart", () => {
+  isComposing = true;
+});
+
+stockSearch.addEventListener("compositionend", () => {
+  isComposing = false;
+  stockSearch.dispatchEvent(new Event("input", { bubbles: true }));
+});
+
+stockSearch.addEventListener("input", (event) => {
+  if (isComposing) return;
   const keyword = event.target.value.trim().toLowerCase();
   if (!keyword) return;
 
@@ -171,7 +187,7 @@ document.getElementById("stockSearch").addEventListener("input", (event) => {
     stock.code.includes(keyword)
   );
 
-  if (found) selectStock(found.code);
+  if (found) selectStock(found.code, { preserveSearch: true });
 });
 
 document.getElementById("refreshBtn").addEventListener("click", () => {
@@ -180,11 +196,17 @@ document.getElementById("refreshBtn").addEventListener("click", () => {
 
 document.querySelectorAll(".accordion").forEach((button) => {
   button.addEventListener("click", () => {
-    button.closest(".panel").classList.toggle("open");
+    const panel = button.closest(".panel");
+    panel.classList.toggle("open");
+    button.querySelector("span").textContent = panel.classList.contains("open") ? "닫기" : "열기";
   });
 });
 
-document.querySelector(".panel").classList.add("open");
+document.querySelectorAll(".panel").forEach((panel) => {
+  panel.classList.add("open");
+  const toggleLabel = panel.querySelector(".accordion span");
+  if (toggleLabel) toggleLabel.textContent = "닫기";
+});
 
 loadStocks().catch((error) => {
   console.error(error);
