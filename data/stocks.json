@@ -1,5 +1,23 @@
 {
-  "updatedAt": "2026. 5. 25. 21시 48분 39초",
+  "updatedAt": "2026. 5. 25. 23시 9분 32초",
+  "universeSource": "Config",
+  "allStocks": [
+    {
+      "code": "005930",
+      "name": "삼성전자",
+      "market": ""
+    },
+    {
+      "code": "000660",
+      "name": "SK하이닉스",
+      "market": ""
+    },
+    {
+      "code": "035420",
+      "name": "NAVER",
+      "market": ""
+    }
+  ],
   "stocks": [
     {
       "code": "005930",
@@ -9,7 +27,7 @@
       "currentPrice": "-",
       "changeRate": "-",
       "targetPrice": "-",
-      "source": "Naver + OpenDART",
+      "source": "Kiwoom + Naver + OpenDART",
       "metrics": {
         "per": 23.64,
         "pbr": 4.07,
@@ -203,7 +221,7 @@
       "currentPrice": "-",
       "changeRate": "-",
       "targetPrice": "-",
-      "source": "Naver + OpenDART",
+      "source": "Kiwoom + Naver + OpenDART",
       "metrics": {
         "per": 18.75,
         "pbr": 8.16,
@@ -397,7 +415,7 @@
       "currentPrice": "-",
       "changeRate": "-",
       "targetPrice": "-",
-      "source": "Naver + OpenDART",
+      "source": "Kiwoom + Naver + OpenDART",
       "metrics": {
         "per": 17.62,
         "pbr": 1.03,
