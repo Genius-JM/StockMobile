@@ -6,6 +6,7 @@ GitHub Pages에서 실행되는 정적 웹앱입니다.
 
 - 네이버 금융: 현재가, 등락률, PER, PBR, 시가총액 등
 - OpenDART: 재무제표 기반 매출액, 영업이익, 당기순이익, ROE, EPS 등
+- Kiwoom API: 전체 종목 목록(코스피/코스닥) 및 시세 항목(가능 항목 우선 적용)
 
 ## 설정 방법
 
@@ -72,3 +73,18 @@ Repository 상단의 `Actions` 메뉴로 이동합니다.
 네이버 금융은 공식 Open API가 아니라 화면 HTML을 읽는 방식입니다. 네이버 화면 구조가 바뀌면 일부 값이 비어 있을 수 있습니다.
 
 OpenDART 재무제표 계정명은 회사별로 다를 수 있어서 일부 항목은 `-`로 표시될 수 있습니다.
+키움 연동을 사용하려면 아래 secret/variable도 추가합니다.
+
+```text
+KIWOOM_APP_KEY
+KIWOOM_APP_SECRET
+```
+
+선택적으로 엔드포인트가 다르면 아래를 Actions variable 또는 env로 지정할 수 있습니다.
+
+```text
+KIWOOM_BASE_URL
+KIWOOM_TOKEN_PATH
+KIWOOM_STOCK_LIST_PATH
+KIWOOM_QUOTE_PATH
+```

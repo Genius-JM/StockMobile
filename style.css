@@ -119,6 +119,7 @@ select {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+  flex-wrap: wrap;
 }
 
 .price-box {
@@ -205,8 +206,7 @@ select {
 }
 
 .bar-head {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
   gap: 10px;
   font-size: 13px;
 }
@@ -233,7 +233,7 @@ select {
 
 table {
   width: 100%;
-  min-width: 620px;
+  min-width: 520px;
   border-collapse: collapse;
   background: #fff;
 }
@@ -292,5 +292,14 @@ code {
 
   .metric-grid {
     grid-template-columns: repeat(5, 1fr);
+  }
+
+  .title-row {
+    flex-wrap: nowrap;
+  }
+
+  .bar-head {
+    display: flex;
+    justify-content: space-between;
   }
 }
