@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026. 5. 26. 9시 5분 26초",
+  "updatedAt": "2026. 5. 26. 9시 39분 47초",
   "universeSource": "Config",
   "allStocks": [
     {
@@ -29,12 +29,12 @@
       "targetPrice": "-",
       "source": "Kiwoom + Naver + OpenDART",
       "metrics": {
-        "per": 24.25,
-        "pbr": 4.17,
+        "per": 24.33,
+        "pbr": 4.19,
         "roe": 9.7,
         "eps": 7123,
         "bps": "-",
-        "marketCap": "17,538,835억",
+        "marketCap": "17,597,298억",
         "dividendYield": 2025.12,
         "dividend": "-"
       },
@@ -42,9 +42,9 @@
         {
           "code": "000660",
           "name": "SK하이닉스",
-          "marketCap": "14,382,333억",
-          "per": 19.49,
-          "pbr": 8.49,
+          "marketCap": "14,859,844억",
+          "per": 20.14,
+          "pbr": 8.77,
           "roe": "-"
         }
       ],
@@ -223,12 +223,12 @@
       "targetPrice": "-",
       "source": "Kiwoom + Naver + OpenDART",
       "metrics": {
-        "per": 19.49,
-        "pbr": 8.49,
+        "per": 20.14,
+        "pbr": 8.77,
         "roe": 0,
         "eps": "-",
         "bps": "-",
-        "marketCap": "14,382,333억",
+        "marketCap": "14,859,844억",
         "dividendYield": 2026.02,
         "dividend": "-"
       },
@@ -236,9 +236,9 @@
         {
           "code": "005930",
           "name": "삼성전자",
-          "marketCap": "17,509,604억",
-          "per": 24.21,
-          "pbr": 4.17,
+          "marketCap": "17,597,298억",
+          "per": 24.33,
+          "pbr": 4.19,
           "roe": "-"
         }
       ],
@@ -417,12 +417,12 @@
       "targetPrice": "-",
       "source": "Kiwoom + Naver + OpenDART",
       "metrics": {
-        "per": 17.79,
-        "pbr": 1.04,
+        "per": 17.66,
+        "pbr": 1.03,
         "roe": 0.94,
         "eps": 1889,
         "bps": "-",
-        "marketCap": "321,591억",
+        "marketCap": "319,238억",
         "dividendYield": 2026.02,
         "dividend": "-"
       },
