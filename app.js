@@ -3,12 +3,20 @@ const state = {
   universe: [],
   selected: null,
   filteredStocks: [],
+  activeSuggestionIndex: -1,
 };
 
 const formatValue = (value, suffix = "") => {
   if (value === null || value === undefined || value === "") return "-";
+  if (value === "-") return "-";
   if (typeof value === "number") return value.toLocaleString("ko-KR") + suffix;
   return value + suffix;
+};
+
+const chartNumber = (value) => {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
 async function loadStocks() {
@@ -23,57 +31,125 @@ async function loadStocks() {
   document.getElementById("updatedAt").textContent =
     `데이터 업데이트: ${data.updatedAt || "-"}`;
 
-  fillStockSelect();
-  fillStockDatalist();
   selectStock(state.stocks[0]?.code || state.universe[0]?.code, { preserveSearch: true });
 }
 
-function fillStockSelect() {
-  const select = document.getElementById("stockSelect");
-  select.innerHTML = "";
-
-  (state.filteredStocks.length ? state.filteredStocks : state.universe).forEach((stock) => {
-    const option = document.createElement("option");
-    option.value = stock.code;
-    option.textContent = `${stock.name} (${stock.code})`;
-    select.appendChild(option);
-  });
+function normalizeKeyword(value) {
+  return value.trim().toLowerCase();
 }
 
-function fillStockDatalist() {
-  const datalist = document.getElementById("stockSearchOptions");
-  if (!datalist) return;
-  datalist.innerHTML = "";
-  (state.filteredStocks.length ? state.filteredStocks : state.universe)
-    .slice(0, 30)
-    .forEach((stock) => {
-      const option = document.createElement("option");
-      option.value = `${stock.name} (${stock.code})`;
-      datalist.appendChild(option);
-    });
+function stockLabel(stock) {
+  return `${stock.name} (${stock.code})`;
+}
+
+function matchRank(stock, keyword) {
+  const name = stock.name.toLowerCase();
+  const code = stock.code.toLowerCase();
+  if (name === keyword || code === keyword || stockLabel(stock).toLowerCase() === keyword) return 0;
+  if (name.startsWith(keyword)) return 1;
+  if (code.startsWith(keyword)) return 2;
+  return 3;
 }
 
 function filterStocks(keyword) {
-  const normalized = keyword.trim().toLowerCase();
-  if (!normalized) {
-    state.filteredStocks = [];
-  } else {
-    state.filteredStocks = state.universe.filter((stock) =>
-      stock.name.toLowerCase().includes(normalized) || stock.code.includes(normalized)
-    );
+  const normalized = normalizeKeyword(keyword);
+  state.filteredStocks = normalized
+    ? state.universe
+      .filter((stock) => {
+        const name = stock.name.toLowerCase();
+        const code = stock.code.toLowerCase();
+        return name.includes(normalized) || code.includes(normalized) || stockLabel(stock).toLowerCase().includes(normalized);
+      })
+      .sort((a, b) => matchRank(a, normalized) - matchRank(b, normalized) || a.name.localeCompare(b.name, "ko"))
+    : [];
+  state.activeSuggestionIndex = state.filteredStocks.length ? 0 : -1;
+}
+
+function findExactStock(keyword) {
+  const normalized = normalizeKeyword(keyword);
+  if (!normalized) return null;
+  return state.universe.find((stock) =>
+    stock.name.toLowerCase() === normalized ||
+    stock.code.toLowerCase() === normalized ||
+    stockLabel(stock).toLowerCase() === normalized
+  ) || null;
+}
+
+function renderStockSuggestions() {
+  const suggestions = document.getElementById("stockSuggestions");
+  const input = document.getElementById("stockSearch");
+  suggestions.innerHTML = "";
+
+  if (!input.value.trim()) {
+    hideStockSuggestions();
+    return;
   }
-  fillStockSelect();
-  fillStockDatalist();
+
+  input.setAttribute("aria-expanded", "true");
+  suggestions.hidden = false;
+
+  if (!state.filteredStocks.length) {
+    const empty = document.createElement("div");
+    empty.className = "suggestion-empty";
+    empty.textContent = "일치하는 종목이 없습니다.";
+    suggestions.appendChild(empty);
+    return;
+  }
+
+  state.filteredStocks.slice(0, 100).forEach((stock, index) => {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = `suggestion-item${index === state.activeSuggestionIndex ? " active" : ""}`;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", index === state.activeSuggestionIndex ? "true" : "false");
+    option.dataset.code = stock.code;
+
+    const main = document.createElement("span");
+    main.className = "suggestion-main";
+
+    const name = document.createElement("strong");
+    name.textContent = stock.name;
+
+    const market = document.createElement("small");
+    market.textContent = stock.market || "시장 정보 없음";
+
+    const code = document.createElement("span");
+    code.className = "suggestion-code";
+    code.textContent = stock.code;
+
+    main.append(name, market);
+    option.append(main, code);
+    suggestions.appendChild(option);
+  });
+}
+
+function hideStockSuggestions() {
+  const suggestions = document.getElementById("stockSuggestions");
+  const input = document.getElementById("stockSearch");
+  suggestions.hidden = true;
+  suggestions.innerHTML = "";
+  input.setAttribute("aria-expanded", "false");
+  state.activeSuggestionIndex = -1;
+}
+
+function chooseStock(code) {
+  selectStock(code, { preserveSearch: true });
+  if (state.selected) {
+    document.getElementById("stockSearch").value = stockLabel(state.selected);
+  }
+  hideStockSuggestions();
 }
 
 function selectStock(code, options = {}) {
   const { preserveSearch = false } = options;
   const stock = state.stocks.find((item) => item.code === code);
   const basic = state.universe.find((item) => item.code === code);
+  const marketText = basic?.market ? `${basic.market} 종목입니다.` : "전체 종목 목록에 포함된 종목입니다.";
   const selected = stock || {
     code: code || "-",
     name: basic?.name || code || "-",
-    description: "상세 재무 데이터는 업데이트 대상 종목에서 제공됩니다.",
+    market: basic?.market || "",
+    description: `${marketText} 상세 재무 데이터는 업데이트 대상 종목에서 제공됩니다.`,
     currentPrice: "-",
     changeRate: "-",
     targetPrice: "-",
@@ -84,7 +160,6 @@ function selectStock(code, options = {}) {
   };
 
   state.selected = selected;
-  document.getElementById("stockSelect").value = selected.code;
   if (!preserveSearch) {
     document.getElementById("stockSearch").value = "";
   }
@@ -125,9 +200,9 @@ function renderSummary(stock) {
 
 function renderPeers(stock) {
   const peers = stock.peers || [];
-  const maxPer = Math.max(...peers.map((p) => p.per || 0), stock.metrics.per || 0, 1);
-  const maxPbr = Math.max(...peers.map((p) => p.pbr || 0), stock.metrics.pbr || 0, 1);
-  const maxRoe = Math.max(...peers.map((p) => p.roe || 0), stock.metrics.roe || 0, 1);
+  const maxPer = Math.max(...peers.map((p) => chartNumber(p.per)), chartNumber(stock.metrics.per), 1);
+  const maxPbr = Math.max(...peers.map((p) => chartNumber(p.pbr)), chartNumber(stock.metrics.pbr), 1);
+  const maxRoe = Math.max(...peers.map((p) => chartNumber(p.roe)), chartNumber(stock.metrics.roe), 1);
 
   const bars = [
     ["PER", stock.metrics.per, maxPer, "배"],
@@ -143,7 +218,7 @@ function renderPeers(stock) {
           <span>내 종목 ${formatValue(value, suffix)} / 비교 최대 ${formatValue(max, suffix)}</span>
         </div>
         <div class="bar-track">
-          <div class="bar-fill" style="--w:${Math.max(4, Math.min(100, value / max * 100))}%"></div>
+          <div class="bar-fill" style="--w:${Math.max(0, Math.min(100, chartNumber(value) / max * 100))}%"></div>
         </div>
       </div>
     `)
@@ -203,12 +278,9 @@ function renderFinancialTable(tableId, section) {
   table.innerHTML = header + body;
 }
 
-document.getElementById("stockSelect").addEventListener("change", (event) => {
-  selectStock(event.target.value);
-});
-
 let isComposing = false;
 const stockSearch = document.getElementById("stockSearch");
+const stockSuggestions = document.getElementById("stockSuggestions");
 
 stockSearch.addEventListener("compositionstart", () => {
   isComposing = true;
@@ -221,24 +293,58 @@ stockSearch.addEventListener("compositionend", () => {
 
 stockSearch.addEventListener("input", (event) => {
   if (isComposing) return;
-  const keyword = event.target.value.trim().toLowerCase();
+  const keyword = event.target.value;
   filterStocks(keyword);
-  if (!keyword) return;
+  renderStockSuggestions();
 
-  const found = state.filteredStocks.find((stock) =>
-    stock.name.toLowerCase().includes(keyword) ||
-    stock.code.includes(keyword)
-  );
+  const exact = findExactStock(keyword);
+  if (exact) selectStock(exact.code, { preserveSearch: true });
+});
 
-  if (found) selectStock(found.code, { preserveSearch: true });
+stockSearch.addEventListener("focus", () => {
+  if (!stockSearch.value.trim()) return;
+  filterStocks(stockSearch.value);
+  renderStockSuggestions();
 });
 
 stockSearch.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown" && state.filteredStocks.length) {
+    event.preventDefault();
+    state.activeSuggestionIndex = Math.min(state.activeSuggestionIndex + 1, Math.min(state.filteredStocks.length, 100) - 1);
+    renderStockSuggestions();
+    return;
+  }
+
+  if (event.key === "ArrowUp" && state.filteredStocks.length) {
+    event.preventDefault();
+    state.activeSuggestionIndex = Math.max(state.activeSuggestionIndex - 1, 0);
+    renderStockSuggestions();
+    return;
+  }
+
+  if (event.key === "Escape") {
+    hideStockSuggestions();
+    return;
+  }
+
   if (event.key !== "Enter") return;
   event.preventDefault();
-  const [first] = state.filteredStocks.length ? state.filteredStocks : state.universe;
-  if (!first) return;
-  selectStock(first.code, { preserveSearch: true });
+  const exact = findExactStock(stockSearch.value);
+  const selected = exact || state.filteredStocks[state.activeSuggestionIndex] || state.filteredStocks[0];
+  if (!selected) return;
+  chooseStock(selected.code);
+});
+
+stockSuggestions.addEventListener("mousedown", (event) => {
+  event.preventDefault();
+  const option = event.target.closest(".suggestion-item");
+  if (!option) return;
+  chooseStock(option.dataset.code);
+});
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest(".search-combo")) return;
+  hideStockSuggestions();
 });
 
 document.getElementById("refreshBtn").addEventListener("click", () => {

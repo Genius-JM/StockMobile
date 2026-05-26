@@ -19,9 +19,10 @@
     <section class="search-card">
       <label for="stockSearch">종목 검색</label>
       <div class="search-row">
-        <input id="stockSearch" type="search" list="stockSearchOptions" placeholder="예: 삼성전자, 005930" autocomplete="off" />
-        <datalist id="stockSearchOptions"></datalist>
-        <select id="stockSelect" aria-label="종목 선택"></select>
+        <div class="search-combo">
+          <input id="stockSearch" type="search" placeholder="예: 삼성전자, 005930" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="stockSuggestions" />
+          <div id="stockSuggestions" class="suggestion-list" role="listbox" hidden></div>
+        </div>
       </div>
       <p id="updatedAt" class="muted"></p>
     </section>
