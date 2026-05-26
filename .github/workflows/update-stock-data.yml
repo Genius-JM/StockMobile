@@ -30,6 +30,11 @@ jobs:
       - name: Update stock data
         env:
           OPENDART_API_KEY: ${{ secrets.OPENDART_API_KEY }}
+          KIWOOM_APP_KEY: ${{ secrets.KIWOOM_APP_KEY }}
+          KIWOOM_APP_SECRET: ${{ secrets.KIWOOM_APP_SECRET }}
+          KIWOOM_BASE_URL: ${{ vars.KIWOOM_BASE_URL }}
+          KIWOOM_MARKETS: ${{ vars.KIWOOM_MARKETS }}
+          KIWOOM_STOCK_INFO_PATH: ${{ vars.KIWOOM_STOCK_INFO_PATH }}
         run: npm run update
 
       - name: Commit updated data

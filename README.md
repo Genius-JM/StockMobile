@@ -85,6 +85,8 @@ KIWOOM_APP_SECRET
 ```text
 KIWOOM_BASE_URL
 KIWOOM_TOKEN_PATH
-KIWOOM_STOCK_LIST_PATH
-KIWOOM_QUOTE_PATH
+KIWOOM_STOCK_INFO_PATH
+KIWOOM_MARKETS
 ```
+
+`KIWOOM_MARKETS`를 비워두면 `0:KOSPI,10:KOSDAQ`을 조회합니다. 전체 종목 목록은 키움 REST API의 `ka10099` 종목정보 리스트를 사용해 `data/stocks.json`의 `allStocks`에 저장됩니다.

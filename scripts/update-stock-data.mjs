@@ -3,14 +3,24 @@ import AdmZip from "adm-zip";
 
 const DART_KEY = process.env.OPENDART_API_KEY;
 const KIWOOM_APP_KEY = process.env.KIWOOM_APP_KEY;
-const KIWOOM_APP_SECRET = process.env.KIWOOM_APP_SECRET;
+const KIWOOM_APP_SECRET = process.env.KIWOOM_APP_SECRET || process.env.KIWOOM_SECRET_KEY;
 const KIWOOM_BASE_URL = process.env.KIWOOM_BASE_URL || "https://api.kiwoom.com";
 const KIWOOM_TOKEN_PATH = process.env.KIWOOM_TOKEN_PATH || "/oauth2/token";
-const KIWOOM_STOCK_LIST_PATH = process.env.KIWOOM_STOCK_LIST_PATH || "/api/dostk/stkinfo";
-const KIWOOM_MARKETS = (process.env.KIWOOM_MARKETS || "KOSPI,KOSDAQ").split(",").map((v) => v.trim()).filter(Boolean);
-const KIWOOM_PAGE_SIZE = Number(process.env.KIWOOM_PAGE_SIZE || 500);
-const KIWOOM_MAX_PAGES = Number(process.env.KIWOOM_MAX_PAGES || 20);
-const KIWOOM_QUOTE_PATH = process.env.KIWOOM_QUOTE_PATH || "/api/dostk/stkinfo/price";
+const KIWOOM_STOCK_INFO_PATH = process.env.KIWOOM_STOCK_INFO_PATH || process.env.KIWOOM_STOCK_LIST_PATH || "/api/dostk/stkinfo";
+const KIWOOM_STOCK_LIST_API_ID = process.env.KIWOOM_STOCK_LIST_API_ID || "ka10099";
+const KIWOOM_QUOTE_API_ID = process.env.KIWOOM_QUOTE_API_ID || "ka10001";
+const KIWOOM_MAX_CONTINUATIONS = Number(process.env.KIWOOM_MAX_CONTINUATIONS || process.env.KIWOOM_MAX_PAGES || 20);
+const KIWOOM_MARKET_ALIASES = {
+  KOSPI: { code: "0", label: "KOSPI" },
+  "0": { code: "0", label: "KOSPI" },
+  KOSDAQ: { code: "10", label: "KOSDAQ" },
+  "10": { code: "10", label: "KOSDAQ" },
+  ETF: { code: "8", label: "ETF" },
+  "8": { code: "8", label: "ETF" },
+  ETN: { code: "60", label: "ETN" },
+  "60": { code: "60", label: "ETN" }
+};
+const KIWOOM_MARKETS = parseKiwoomMarkets(process.env.KIWOOM_MARKETS || "0:KOSPI,10:KOSDAQ");
 const STOCK_LIST_PATH = "data/stock-list.json";
 const OUTPUT_PATH = "data/stocks.json";
 const REPORTS = [
@@ -29,6 +39,19 @@ const ALIASES = {
 };
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function parseKiwoomMarkets(value) {
+  return String(value)
+    .split(",")
+    .map((raw) => {
+      const [market, label] = raw.split(":").map((part) => part.trim());
+      const known = KIWOOM_MARKET_ALIASES[market?.toUpperCase()];
+      return {
+        code: known?.code || market,
+        label: label || known?.label || market
+      };
+    })
+    .filter((market) => market.code);
+}
 function toNumber(value) {
   if (value === null || value === undefined) return "-";
   const cleaned = String(value).replace(/,/g, "").replace(/원/g, "").replace(/%/g, "").trim();
@@ -96,75 +119,120 @@ async function fetchNaver(code) {
     }
   };
 }
-async function kiwoomToken() {
+async function kiwoomRestToken() {
   if (!KIWOOM_APP_KEY || !KIWOOM_APP_SECRET) return null;
   const response = await fetch(`${KIWOOM_BASE_URL}${KIWOOM_TOKEN_PATH}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json;charset=UTF-8" },
     body: JSON.stringify({
       grant_type: "client_credentials",
       appkey: KIWOOM_APP_KEY,
-      appsecret: KIWOOM_APP_SECRET
+      secretkey: KIWOOM_APP_SECRET
     })
   });
-  if (!response.ok) throw new Error(`Kiwoom token HTTP ${response.status}`);
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Kiwoom token HTTP ${response.status}${body ? `: ${body.slice(0, 200)}` : ""}`);
+  }
   const data = await response.json();
-  return data.access_token || data.token || null;
+  const token = data.token || data.access_token || null;
+  if (!token) throw new Error(`Kiwoom token missing in response${data.return_msg ? `: ${data.return_msg}` : ""}`);
+  return token;
 }
-async function kiwoomGet(path, token, params = {}) {
-  if (!token) throw new Error("Kiwoom token 없음");
+function kiwoomRestAuthorization(token) {
+  return String(token).toLowerCase().startsWith("bearer ") ? token : `Bearer ${token}`;
+}
+async function kiwoomRestPost(path, apiId, token, body = {}, continuation = {}) {
+  if (!token) throw new Error("Kiwoom token missing");
+
   const url = new URL(`${KIWOOM_BASE_URL}${path}`);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const headers = {
+    "Content-Type": "application/json;charset=UTF-8",
+    authorization: kiwoomRestAuthorization(token),
+    "api-id": apiId
+  };
+  if (continuation.contYn) headers["cont-yn"] = continuation.contYn;
+  if (continuation.nextKey) headers["next-key"] = continuation.nextKey;
+
   const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      appkey: KIWOOM_APP_KEY || "",
-      appsecret: KIWOOM_APP_SECRET || ""
-    }
+    method: "POST",
+    headers,
+    body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(`Kiwoom HTTP ${response.status}: ${path}`);
-  return await response.json();
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Kiwoom HTTP ${response.status}: ${apiId} ${text.slice(0, 200)}`);
+
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Kiwoom ${apiId} invalid JSON: ${text.slice(0, 200)}`);
+    }
+  }
+  if (data.return_code !== undefined && Number(data.return_code) !== 0) {
+    throw new Error(`Kiwoom ${apiId} ${data.return_code}: ${data.return_msg || "request failed"}`);
+  }
+
+  return {
+    data,
+    contYn: response.headers.get("cont-yn") || data["cont-yn"] || data.cont_yn || "",
+    nextKey: response.headers.get("next-key") || data["next-key"] || data.next_key || ""
+  };
 }
-function normalizeUniverseItem(item) {
-  const code = String(item.code || item.stk_cd || item.iscd || item.stock_code || item.item_cd || "").trim();
+function extractKiwoomRestList(data) {
+  const candidates = [data.list, data.stk_info, data.stk_list, data.stocks, data.output, data.items, data.data];
+  return candidates.find((candidate) => Array.isArray(candidate)) || [];
+}
+function normalizeKiwoomRestCode(value) {
+  return String(value || "").trim().replace(/^A(?=\d{6}$)/, "");
+}
+function normalizeKiwoomRestUniverseItem(item, fallbackMarket = "") {
+  const code = normalizeKiwoomRestCode(item.code || item.stk_cd || item.iscd || item.stock_code || item.item_cd);
   const name = String(item.name || item.stk_nm || item.hts_kor_isnm || item.stock_name || item.item_nm || "").trim();
-  const market = String(item.market || item.mrkt || item.market_type || item.mrkt_tp || "").trim();
+  const market = String(item.market || item.mrkt || item.market_type || item.mrkt_tp || fallbackMarket).trim();
   if (!code || !name) return null;
   return { code, name, market };
 }
-async function fetchKiwoomUniverse(token) {
+async function fetchKiwoomUniverseRest(token) {
   if (!token) return [];
 
   const merged = new Map();
   for (const market of KIWOOM_MARKETS) {
-    for (let page = 1; page <= KIWOOM_MAX_PAGES; page += 1) {
-      const data = await kiwoomGet(KIWOOM_STOCK_LIST_PATH, token, {
-        market,
-        page: String(page),
-        size: String(KIWOOM_PAGE_SIZE)
-      });
-      const list = data.stocks || data.output || data.items || data.list || [];
+    let contYn = "N";
+    let nextKey = "";
+    let continuationCount = 0;
+
+    do {
+      const result = await kiwoomRestPost(KIWOOM_STOCK_INFO_PATH, KIWOOM_STOCK_LIST_API_ID, token, {
+        mrkt_tp: market.code
+      }, { contYn, nextKey });
+      const list = extractKiwoomRestList(result.data);
       if (!Array.isArray(list) || list.length === 0) break;
-      for (const item of list.map(normalizeUniverseItem).filter(Boolean)) {
+
+      for (const item of list.map((raw) => normalizeKiwoomRestUniverseItem(raw, market.label)).filter(Boolean)) {
         if (!merged.has(item.code)) merged.set(item.code, item);
       }
-      if (list.length < KIWOOM_PAGE_SIZE) break;
-      await sleep(120);
-    }
+
+      contYn = String(result.contYn || "").toUpperCase() === "Y" ? "Y" : "N";
+      nextKey = result.nextKey || "";
+      continuationCount += 1;
+      if (contYn === "Y" && nextKey) await sleep(120);
+    } while (contYn === "Y" && nextKey && continuationCount < KIWOOM_MAX_CONTINUATIONS);
   }
 
   return Array.from(merged.values()).sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
-async function fetchKiwoomQuote(code, token) {
+async function fetchKiwoomQuoteRest(code, token) {
   if (!token) return null;
-  const data = await kiwoomGet(KIWOOM_QUOTE_PATH, token, { code });
+  const { data } = await kiwoomRestPost(KIWOOM_STOCK_INFO_PATH, KIWOOM_QUOTE_API_ID, token, { stk_cd: code });
   const quote = data.output || data.data || data.quote || data;
-  const currentPrice = toNumber(quote.currentPrice || quote.stck_prpr || quote.price || quote.now || "-");
-  const changeRate = toNumber(quote.changeRate || quote.prdy_ctrt || quote.rate || "-");
+  const currentPrice = toNumber(quote.currentPrice || quote.cur_prc || quote.stck_prpr || quote.price || quote.now || "-");
+  const changeRate = toNumber(quote.changeRate || quote.flu_rt || quote.prdy_ctrt || quote.rate || "-");
   const per = toNumber(quote.per || quote.PER || "-");
   const pbr = toNumber(quote.pbr || quote.PBR || "-");
-  const marketCap = toNumber(quote.marketCap || quote.lstg_stqt || quote.market_cap || "-");
-  const dividendYield = toNumber(quote.dividendYield || quote.dvdd_yld || "-");
+  const marketCap = toNumber(quote.marketCap || quote.mac || quote.market_cap || "-");
+  const dividendYield = toNumber(quote.dividendYield || quote.dvyy || quote.dvdd_yld || "-");
   return {
     currentPrice,
     changeRate,
@@ -289,7 +357,7 @@ async function buildStock(config, configsByCode, kiwoomTokenValue) {
     console.warn(`Naver skip ${config.code}: ${e.message}`);
     return { currentPrice: "-", changeRate: "-", metrics: {} };
   });
-  const kiwoom = await fetchKiwoomQuote(config.code, kiwoomTokenValue).catch(e => {
+  const kiwoom = await fetchKiwoomQuoteRest(config.code, kiwoomTokenValue).catch(e => {
     console.warn(`Kiwoom skip ${config.code}: ${e.message}`);
     return null;
   });
@@ -306,7 +374,7 @@ async function buildStock(config, configsByCode, kiwoomTokenValue) {
     const peerConfig = configsByCode.get(peerCode);
     if (!peerConfig) continue;
     const peerNaver = await fetchNaver(peerCode).catch(() => ({ metrics: {} }));
-    const peerKiwoom = await fetchKiwoomQuote(peerCode, kiwoomTokenValue).catch(() => null);
+    const peerKiwoom = await fetchKiwoomQuoteRest(peerCode, kiwoomTokenValue).catch(() => null);
     const peer = peerKiwoom || peerNaver;
     peers.push({
       code: peerCode,
@@ -346,11 +414,11 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(STOCK_LIST_PATH, "utf8"));
   const list = config.stocks || [];
   const configsByCode = new Map(list.map(item => [item.code, item]));
-  const kiwoomTokenValue = await kiwoomToken().catch((e) => {
+  const kiwoomTokenValue = await kiwoomRestToken().catch((e) => {
     console.warn(`Kiwoom auth skip: ${e.message}`);
     return null;
   });
-  const allStocks = await fetchKiwoomUniverse(kiwoomTokenValue).catch((e) => {
+  const allStocks = await fetchKiwoomUniverseRest(kiwoomTokenValue).catch((e) => {
     console.warn(`Kiwoom universe skip: ${e.message}`);
     return [];
   });
@@ -361,7 +429,7 @@ async function main() {
   }
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify({
     updatedAt: new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }),
-    universeSource: allStocks.length ? "Kiwoom" : "Config",
+    universeSource: allStocks.length ? "Kiwoom REST API (ka10099)" : "Config",
     allStocks: allStocks.length ? allStocks : list.map((item) => ({ code: item.code, name: item.name, market: "" })),
     stocks
   }, null, 2), "utf8");
