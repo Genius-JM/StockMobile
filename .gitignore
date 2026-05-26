@@ -1,0 +1,15 @@
+node_modules/
+
+logs/*
+!logs/.gitkeep
+
+cache/*
+!cache/.gitkeep
+
+secrets/*
+!secrets/.gitkeep
+
+.env
+.env.*
+*.local
+*.log

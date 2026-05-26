@@ -216,6 +216,12 @@ select {
   font-size: 18px;
 }
 
+.price-box small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

@@ -14,6 +14,9 @@ on:
       - ".github/workflows/update-stock-data.yml"
       - "scripts/update-stock-data.mjs"
       - "data/stock-list.json"
+      - "public/app.js"
+      - "public/index.html"
+      - "public/style.css"
       - "package.json"
       - "package-lock.json"
 
@@ -52,6 +55,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add data/stocks.json
+          git add public/data/stocks.json
           git commit -m "Update stock data" || echo "No changes"
           git push

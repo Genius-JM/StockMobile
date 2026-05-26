@@ -93,3 +93,76 @@ KIWOOM_REQUIRE_UNIVERSE
 
 `KIWOOM_MARKETS`를 비워두면 `0:KOSPI,10:KOSDAQ`을 조회합니다. 전체 종목 목록은 키움 REST API의 `ka10099` 종목정보 리스트를 사용해 `data/stocks.json`의 `allStocks`에 저장됩니다.
 `KIWOOM_BASE_URL`을 비워두면 실전 도메인(`https://api.kiwoom.com`)을 먼저 시도하고, 토큰 발급에 실패하면 모의투자 도메인(`https://mockapi.kiwoom.com`)도 자동으로 시도합니다. 키움 키가 설정된 경우 전체 종목 목록을 가져오지 못하면 GitHub Actions가 실패하도록 처리됩니다.
+
+## 서버 배포형 실행
+
+StockMobile은 `/stockmobile` 하위 경로에서 동작하는 Express 서버로 실행할 수 있습니다.
+
+```text
+D:\WEB_ROOT\StockMobile
+  public\
+  server.js
+  package.json
+  logs\
+  cache\
+```
+
+로컬 확인:
+
+```powershell
+npm install
+npm start
+```
+
+기본 주소:
+
+```text
+http://127.0.0.1:3100/stockmobile
+http://127.0.0.1:3100/stockmobile/api/search?q=삼성
+http://127.0.0.1:3100/stockmobile/api/stock/005930
+```
+
+IIS에서는 `/stockmobile/*`만 `http://127.0.0.1:3100/stockmobile/*`로 Reverse Proxy합니다. Node 서버는 `public` 폴더만 정적 파일로 노출하므로 `.env`, `server.js`, `.git`, `.github`, `scripts`, `logs`, `cache`, `secrets`는 웹에서 직접 접근되지 않습니다.
+
+### Secret 저장
+
+브라우저에는 API Key가 절대 포함되지 않습니다. 서버는 아래 순서로 설정을 읽습니다.
+
+1. Windows 환경변수
+2. DPAPI 암호화 파일: `secrets\stockmobile.dpapi.json`
+3. Windows Credential Manager
+
+Windows Credential Manager 예시:
+
+```powershell
+cmdkey /generic:StockMobile/KIWOOM_APP_KEY /user:StockMobile /pass:"키움_APP_KEY"
+cmdkey /generic:StockMobile/KIWOOM_APP_SECRET /user:StockMobile /pass:"키움_APP_SECRET"
+```
+
+DPAPI 파일 예시:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\set-dpapi-secret.ps1 -Name KIWOOM_APP_KEY -Value "키움_APP_KEY"
+powershell -ExecutionPolicy Bypass -File .\scripts\set-dpapi-secret.ps1 -Name KIWOOM_APP_SECRET -Value "키움_APP_SECRET"
+```
+
+DPAPI 파일은 만든 Windows 계정으로만 복호화됩니다. NSSM 서비스 계정으로 실행할 예정이면 같은 계정으로 secret을 생성하세요.
+
+### Windows 서비스
+
+NSSM 설정 예시:
+
+```text
+Service name: StockMobile
+Application: C:\Program Files\nodejs\node.exe
+Startup directory: D:\WEB_ROOT\StockMobile
+Arguments: server.js
+```
+
+로그 파일:
+
+```text
+logs\access.log
+logs\api.log
+logs\error.log
+```

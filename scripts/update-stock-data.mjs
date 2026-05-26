@@ -29,7 +29,7 @@ const KIWOOM_MARKET_ALIASES = {
 let kiwoomActiveBaseUrl = KIWOOM_BASE_URLS[0] || KIWOOM_PROD_BASE_URL;
 const KIWOOM_MARKETS = parseKiwoomMarkets(process.env.KIWOOM_MARKETS || "0:KOSPI,10:KOSDAQ");
 const STOCK_LIST_PATH = "data/stock-list.json";
-const OUTPUT_PATH = "data/stocks.json";
+const OUTPUT_PATH = "public/data/stocks.json";
 const REPORTS = [
   { code: "11013", month: "03" },
   { code: "11012", month: "06" },

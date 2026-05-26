@@ -1,9 +1,12 @@
+const BASE_PATH = window.STOCKMOBILE_BASE_PATH || "/stockmobile";
+
 const state = {
   stocks: [],
   universe: [],
   selected: null,
   filteredStocks: [],
   activeSuggestionIndex: -1,
+  detailRequestId: 0,
 };
 
 const formatValue = (value, suffix = "") => {
@@ -19,8 +22,23 @@ const chartNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const apiUrl = (path) => `${BASE_PATH}${path}`;
+
+const formatMarketCap = (value) => {
+  if (value === null || value === undefined || value === "" || value === "-") return "-";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const eok = Math.round(n / 100000000);
+  if (eok >= 10000) {
+    const jo = Math.floor(eok / 10000);
+    const rest = eok % 10000;
+    return rest ? `${jo}조 ${rest.toLocaleString("ko-KR")}억` : `${jo}조`;
+  }
+  return `${eok.toLocaleString("ko-KR")}억`;
+};
+
 async function loadStocks() {
-  const response = await fetch(`./data/stocks.json?v=${Date.now()}`);
+  const response = await fetch(`${apiUrl("/data/stocks.json")}?v=${Date.now()}`);
   if (!response.ok) {
     throw new Error("stocks.json을 불러오지 못했습니다.");
   }
@@ -178,7 +196,8 @@ function selectStock(code, options = {}) {
     metrics: { per: "-", pbr: "-", roe: "-", eps: "-", bps: "-", marketCap: "-", dividendYield: "-", dividend: "-" },
     peers: [],
     annual: { columns: [], rows: [] },
-    quarter: { columns: [], rows: [] }
+    quarter: { columns: [], rows: [] },
+    quoteUpdatedAt: ""
   };
 
   state.selected = selected;
@@ -190,6 +209,54 @@ function selectStock(code, options = {}) {
   renderPeers(selected);
   renderFinancialTable("annualTable", selected.annual);
   renderFinancialTable("quarterTable", selected.quarter);
+  loadStockDetail(selected.code);
+}
+
+async function loadStockDetail(code) {
+  if (!code || code === "-") return;
+  const requestId = ++state.detailRequestId;
+  const selectedCode = code;
+  document.getElementById("quoteUpdatedAt").textContent = "조회 중";
+
+  try {
+    const response = await fetch(apiUrl(`/api/stock/${encodeURIComponent(code)}`), {
+      headers: { "Accept": "application/json" }
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `HTTP ${response.status}`);
+    }
+    const detail = await response.json();
+    if (requestId !== state.detailRequestId || state.selected?.code !== selectedCode) return;
+    applyStockDetail(detail);
+  } catch (error) {
+    if (requestId !== state.detailRequestId || state.selected?.code !== selectedCode) return;
+    document.getElementById("quoteUpdatedAt").textContent = "조회 실패";
+    document.getElementById("stockDesc").textContent =
+      `${state.selected.description || ""} 실시간 상세정보를 불러오지 못했습니다.`;
+    console.warn(error);
+  }
+}
+
+function applyStockDetail(detail) {
+  if (!state.selected || state.selected.code !== detail.code) return;
+  const selected = {
+    ...state.selected,
+    name: detail.name || state.selected.name,
+    currentPrice: detail.price ?? "-",
+    changeRate: detail.changeRate ?? "-",
+    quoteUpdatedAt: detail.updatedAt || "",
+    description: `${detail.name || state.selected.name} 실시간 상세정보를 조회했습니다.`,
+    metrics: {
+      ...state.selected.metrics,
+      per: detail.per ?? "-",
+      pbr: detail.pbr ?? "-",
+      marketCap: detail.marketCap === null || detail.marketCap === undefined ? "-" : formatMarketCap(detail.marketCap)
+    }
+  };
+  state.selected = selected;
+  renderSummary(selected);
+  renderPeers(selected);
 }
 
 function renderSummary(stock) {
@@ -197,6 +264,7 @@ function renderSummary(stock) {
   document.getElementById("stockDesc").textContent = stock.description || "";
   document.getElementById("currentPrice").textContent = formatValue(stock.currentPrice, "원");
   document.getElementById("changeRate").textContent = stock.changeRate && stock.changeRate !== "-" ? `${stock.changeRate}%` : "-";
+  document.getElementById("quoteUpdatedAt").textContent = stock.quoteUpdatedAt ? `조회 ${stock.quoteUpdatedAt}` : "-";
 
   const metrics = [
     ["PER", stock.metrics.per, "배"],
