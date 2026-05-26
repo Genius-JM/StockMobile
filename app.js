@@ -51,6 +51,28 @@ function matchRank(stock, keyword) {
   return 3;
 }
 
+function marketRank(stock) {
+  const market = String(stock.market || "").toUpperCase();
+  const name = String(stock.name || "").toUpperCase();
+  const isListedProduct = name.includes("ETN") ||
+    name.includes("ETF") ||
+    /^(1Q|ACE|ARIRANG|HANARO|KBSTAR|KIWOOM|KODEX|KOSEF|PLUS|RISE|SOL|TIMEFOLIO|TIGER)\b/.test(name);
+  if (isListedProduct) return 2;
+  if (market.includes("KOSPI") || market.includes("코스피")) return 0;
+  if (market.includes("KOSDAQ") || market.includes("코스닥")) return 1;
+  return 2;
+}
+
+function compareSearchResult(a, b, keyword) {
+  const rankA = matchRank(a, keyword);
+  const rankB = matchRank(b, keyword);
+  if (rankA === 0 || rankB === 0) return rankA - rankB;
+  return marketRank(a) - marketRank(b) ||
+    rankA - rankB ||
+    a.name.localeCompare(b.name, "ko") ||
+    a.code.localeCompare(b.code);
+}
+
 function filterStocks(keyword) {
   const normalized = normalizeKeyword(keyword);
   state.filteredStocks = normalized
@@ -60,7 +82,7 @@ function filterStocks(keyword) {
         const code = stock.code.toLowerCase();
         return name.includes(normalized) || code.includes(normalized) || stockLabel(stock).toLowerCase().includes(normalized);
       })
-      .sort((a, b) => matchRank(a, normalized) - matchRank(b, normalized) || a.name.localeCompare(b.name, "ko"))
+      .sort((a, b) => compareSearchResult(a, b, normalized))
     : [];
   state.activeSuggestionIndex = state.filteredStocks.length ? 0 : -1;
 }
@@ -149,7 +171,7 @@ function selectStock(code, options = {}) {
     code: code || "-",
     name: basic?.name || code || "-",
     market: basic?.market || "",
-    description: `${marketText} 상세 재무 데이터는 업데이트 대상 종목에서 제공됩니다.`,
+    description: `${marketText} 저장된 상세 재무 데이터가 아직 없어 기본 정보만 표시합니다.`,
     currentPrice: "-",
     changeRate: "-",
     targetPrice: "-",
