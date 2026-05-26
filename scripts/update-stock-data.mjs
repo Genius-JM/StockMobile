@@ -4,12 +4,18 @@ import AdmZip from "adm-zip";
 const DART_KEY = process.env.OPENDART_API_KEY;
 const KIWOOM_APP_KEY = process.env.KIWOOM_APP_KEY;
 const KIWOOM_APP_SECRET = process.env.KIWOOM_APP_SECRET || process.env.KIWOOM_SECRET_KEY;
-const KIWOOM_BASE_URL = process.env.KIWOOM_BASE_URL || "https://api.kiwoom.com";
+const KIWOOM_PROD_BASE_URL = "https://api.kiwoom.com";
+const KIWOOM_MOCK_BASE_URL = "https://mockapi.kiwoom.com";
+const KIWOOM_BASE_URLS = parseKiwoomBaseUrls(
+  process.env.KIWOOM_BASE_URLS ||
+  [process.env.KIWOOM_BASE_URL || KIWOOM_PROD_BASE_URL, ...(process.env.KIWOOM_BASE_URL ? [] : [KIWOOM_MOCK_BASE_URL])].join(",")
+);
 const KIWOOM_TOKEN_PATH = process.env.KIWOOM_TOKEN_PATH || "/oauth2/token";
 const KIWOOM_STOCK_INFO_PATH = process.env.KIWOOM_STOCK_INFO_PATH || process.env.KIWOOM_STOCK_LIST_PATH || "/api/dostk/stkinfo";
 const KIWOOM_STOCK_LIST_API_ID = process.env.KIWOOM_STOCK_LIST_API_ID || "ka10099";
 const KIWOOM_QUOTE_API_ID = process.env.KIWOOM_QUOTE_API_ID || "ka10001";
 const KIWOOM_MAX_CONTINUATIONS = Number(process.env.KIWOOM_MAX_CONTINUATIONS || process.env.KIWOOM_MAX_PAGES || 20);
+const KIWOOM_REQUIRE_UNIVERSE = parseBoolean(process.env.KIWOOM_REQUIRE_UNIVERSE, Boolean(KIWOOM_APP_KEY && KIWOOM_APP_SECRET));
 const KIWOOM_MARKET_ALIASES = {
   KOSPI: { code: "0", label: "KOSPI" },
   "0": { code: "0", label: "KOSPI" },
@@ -20,6 +26,7 @@ const KIWOOM_MARKET_ALIASES = {
   ETN: { code: "60", label: "ETN" },
   "60": { code: "60", label: "ETN" }
 };
+let kiwoomActiveBaseUrl = KIWOOM_BASE_URLS[0] || KIWOOM_PROD_BASE_URL;
 const KIWOOM_MARKETS = parseKiwoomMarkets(process.env.KIWOOM_MARKETS || "0:KOSPI,10:KOSDAQ");
 const STOCK_LIST_PATH = "data/stock-list.json";
 const OUTPUT_PATH = "data/stocks.json";
@@ -39,6 +46,25 @@ const ALIASES = {
 };
 
 function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+function parseBoolean(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return !["0", "false", "no", "off"].includes(String(value).trim().toLowerCase());
+}
+function parseKiwoomBaseUrls(value) {
+  const seen = new Set();
+  return String(value)
+    .split(",")
+    .map((url) => url.trim().replace(/\/+$/, ""))
+    .filter(Boolean)
+    .filter((url) => {
+      if (seen.has(url)) return false;
+      seen.add(url);
+      return true;
+    });
+}
+function kiwoomEndpoint(baseUrl, path) {
+  return new URL(path, `${baseUrl.replace(/\/+$/, "")}/`);
+}
 function parseKiwoomMarkets(value) {
   return String(value)
     .split(",")
@@ -119,9 +145,8 @@ async function fetchNaver(code) {
     }
   };
 }
-async function kiwoomRestToken() {
-  if (!KIWOOM_APP_KEY || !KIWOOM_APP_SECRET) return null;
-  const response = await fetch(`${KIWOOM_BASE_URL}${KIWOOM_TOKEN_PATH}`, {
+async function requestKiwoomRestToken(baseUrl) {
+  const response = await fetch(kiwoomEndpoint(baseUrl, KIWOOM_TOKEN_PATH), {
     method: "POST",
     headers: { "Content-Type": "application/json;charset=UTF-8" },
     body: JSON.stringify({
@@ -139,13 +164,30 @@ async function kiwoomRestToken() {
   if (!token) throw new Error(`Kiwoom token missing in response${data.return_msg ? `: ${data.return_msg}` : ""}`);
   return token;
 }
+async function kiwoomRestToken() {
+  if (!KIWOOM_APP_KEY || !KIWOOM_APP_SECRET) return null;
+
+  const errors = [];
+  for (const baseUrl of KIWOOM_BASE_URLS) {
+    try {
+      const token = await requestKiwoomRestToken(baseUrl);
+      kiwoomActiveBaseUrl = baseUrl;
+      console.log(`Kiwoom auth OK: ${baseUrl}`);
+      return token;
+    } catch (error) {
+      errors.push(`${baseUrl}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join(" | "));
+}
 function kiwoomRestAuthorization(token) {
   return String(token).toLowerCase().startsWith("bearer ") ? token : `Bearer ${token}`;
 }
 async function kiwoomRestPost(path, apiId, token, body = {}, continuation = {}) {
   if (!token) throw new Error("Kiwoom token missing");
 
-  const url = new URL(`${KIWOOM_BASE_URL}${path}`);
+  const url = kiwoomEndpoint(kiwoomActiveBaseUrl, path);
   const headers = {
     "Content-Type": "application/json;charset=UTF-8",
     authorization: kiwoomRestAuthorization(token),
@@ -414,14 +456,25 @@ async function main() {
   const config = JSON.parse(fs.readFileSync(STOCK_LIST_PATH, "utf8"));
   const list = config.stocks || [];
   const configsByCode = new Map(list.map(item => [item.code, item]));
-  const kiwoomTokenValue = await kiwoomRestToken().catch((e) => {
+  let kiwoomTokenValue = null;
+  try {
+    kiwoomTokenValue = await kiwoomRestToken();
+  } catch (e) {
+    if (KIWOOM_REQUIRE_UNIVERSE) throw e;
     console.warn(`Kiwoom auth skip: ${e.message}`);
-    return null;
-  });
-  const allStocks = await fetchKiwoomUniverseRest(kiwoomTokenValue).catch((e) => {
+  }
+
+  let allStocks = [];
+  try {
+    allStocks = await fetchKiwoomUniverseRest(kiwoomTokenValue);
+  } catch (e) {
+    if (KIWOOM_REQUIRE_UNIVERSE) throw e;
     console.warn(`Kiwoom universe skip: ${e.message}`);
-    return [];
-  });
+  }
+  if (KIWOOM_REQUIRE_UNIVERSE && !allStocks.length) {
+    throw new Error("Kiwoom universe is required but returned no stocks.");
+  }
+
   const stocks = [];
   for (const item of list) {
     stocks.push(await buildStock(item, configsByCode, kiwoomTokenValue));
@@ -429,7 +482,7 @@ async function main() {
   }
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify({
     updatedAt: new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul", hour12: false }),
-    universeSource: allStocks.length ? "Kiwoom REST API (ka10099)" : "Config",
+    universeSource: allStocks.length ? `Kiwoom REST API (ka10099, ${kiwoomActiveBaseUrl})` : "Config",
     allStocks: allStocks.length ? allStocks : list.map((item) => ({ code: item.code, name: item.name, market: "" })),
     stocks
   }, null, 2), "utf8");

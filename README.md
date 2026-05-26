@@ -84,9 +84,12 @@ KIWOOM_APP_SECRET
 
 ```text
 KIWOOM_BASE_URL
+KIWOOM_BASE_URLS
 KIWOOM_TOKEN_PATH
 KIWOOM_STOCK_INFO_PATH
 KIWOOM_MARKETS
+KIWOOM_REQUIRE_UNIVERSE
 ```
 
 `KIWOOM_MARKETS`를 비워두면 `0:KOSPI,10:KOSDAQ`을 조회합니다. 전체 종목 목록은 키움 REST API의 `ka10099` 종목정보 리스트를 사용해 `data/stocks.json`의 `allStocks`에 저장됩니다.
+`KIWOOM_BASE_URL`을 비워두면 실전 도메인(`https://api.kiwoom.com`)을 먼저 시도하고, 토큰 발급에 실패하면 모의투자 도메인(`https://mockapi.kiwoom.com`)도 자동으로 시도합니다. 키움 키가 설정된 경우 전체 종목 목록을 가져오지 못하면 GitHub Actions가 실패하도록 처리됩니다.

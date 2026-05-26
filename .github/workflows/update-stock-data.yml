@@ -7,6 +7,15 @@ on:
   schedule:
     - cron: "0 23 * * *"
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/update-stock-data.yml"
+      - "scripts/update-stock-data.mjs"
+      - "data/stock-list.json"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: write
@@ -33,7 +42,9 @@ jobs:
           KIWOOM_APP_KEY: ${{ secrets.KIWOOM_APP_KEY }}
           KIWOOM_APP_SECRET: ${{ secrets.KIWOOM_APP_SECRET }}
           KIWOOM_BASE_URL: ${{ vars.KIWOOM_BASE_URL }}
+          KIWOOM_BASE_URLS: ${{ vars.KIWOOM_BASE_URLS }}
           KIWOOM_MARKETS: ${{ vars.KIWOOM_MARKETS }}
+          KIWOOM_REQUIRE_UNIVERSE: ${{ vars.KIWOOM_REQUIRE_UNIVERSE }}
           KIWOOM_STOCK_INFO_PATH: ${{ vars.KIWOOM_STOCK_INFO_PATH }}
         run: npm run update
 
